@@ -252,6 +252,18 @@ func TestRouter_UrlPathPatterns(t *testing.T) {
 			g.Expect(err).ToNot(HaveOccurred())
 			g.Expect(string(body)).To(Equal("catch v1"))
 
+			// still catches the /v1 path
+			request, err = http.NewRequest("POST", fmt.Sprintf("%s/v1", testServer.URL), nil)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			resp, err = client.Do(request)
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err = io.ReadAll(resp.Body)
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(string(body)).To(Equal("catch all"))
+
 			// full_match catches the exact url properly
 			request, err = http.NewRequest("POST", fmt.Sprintf("%s/v1/full_match", testServer.URL), nil)
 			g.Expect(err).ToNot(HaveOccurred())
@@ -295,5 +307,80 @@ func TestRouter_NamedParameters(t *testing.T) {
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
 		g.Expect(namedParameters).To(Equal(map[string]string{"name": "the_name"}))
+	})
+
+	t.Run("It can add multiple named parameters together'", func(t *testing.T) {
+		path := "/:1/:2/:3"
+
+		var namedParameters = map[string]string{}
+		foundHandler := func(w http.ResponseWriter, r *http.Request) {
+			namedParameters = GetNamedParamters(r.Context())
+
+			w.WriteHeader(http.StatusOK)
+		}
+
+		router := New()
+		router.HandleFunc("POST", path, foundHandler)
+
+		testServer := httptest.NewServer(router)
+		defer testServer.Close()
+
+		request, err := http.NewRequest("POST", fmt.Sprintf("%s/one/two/three", testServer.URL), nil)
+		g.Expect(err).ToNot(HaveOccurred())
+
+		resp, err := client.Do(request)
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		g.Expect(namedParameters).To(Equal(map[string]string{"1": "one", "2": "two", "3": "three"}))
+	})
+
+	t.Run("Context behaviors of paths", func(t *testing.T) {
+		t.Run("It overwrites the key words at the same path level", func(t *testing.T) {
+			var namedParameters = map[string]string{}
+			foundHandler := func(w http.ResponseWriter, r *http.Request) {
+				namedParameters = GetNamedParamters(r.Context())
+
+				w.WriteHeader(http.StatusOK)
+			}
+
+			router := New()
+			router.HandleFunc("POST", "/:name", foundHandler)
+			router.HandleFunc("POST", "/:value2", foundHandler)
+
+			testServer := httptest.NewServer(router)
+			defer testServer.Close()
+
+			request, err := http.NewRequest("POST", fmt.Sprintf("%s/the_name", testServer.URL), nil)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			resp, err := client.Do(request)
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			g.Expect(namedParameters).To(Equal(map[string]string{"value2": "the_name"}))
+		})
+
+		t.Run("It overwrittes the key workds at multiple path levels", func(*testing.T) {
+			var namedParameters = map[string]string{}
+			foundHandler := func(w http.ResponseWriter, r *http.Request) {
+				namedParameters = GetNamedParamters(r.Context())
+
+				w.WriteHeader(http.StatusOK)
+			}
+
+			router := New()
+			router.HandleFunc("POST", "/:1/:2/:3", foundHandler)
+			router.HandleFunc("POST", "/:new1/:new2/:new3", foundHandler)
+
+			testServer := httptest.NewServer(router)
+			defer testServer.Close()
+
+			request, err := http.NewRequest("POST", fmt.Sprintf("%s/one/two/three", testServer.URL), nil)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			resp, err := client.Do(request)
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			g.Expect(namedParameters).To(Equal(map[string]string{"new1": "one", "new2": "two", "new3": "three"}))
+		})
 	})
 }

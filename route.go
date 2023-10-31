@@ -34,6 +34,18 @@ func setNamedParameter(name, value string, r *http.Request) *http.Request {
 	return r
 }
 
+func trimPaths(path string) string {
+	if strings.HasPrefix(path, ":") {
+		path = path[1:]
+	}
+
+	if strings.HasSuffix(path, "/") {
+		path = path[:len(path)-1]
+	}
+
+	return path
+}
+
 type route struct {
 	childName     string
 	namedChildren *route
@@ -69,6 +81,9 @@ func splitPahts(path string) []string {
 func (r *route) addUrl(path string, handlerFunc http.HandlerFunc) {
 	splitPaths := splitPahts(path)
 
+	//fmt.Printf("add url splitPaths: %#v\n", splitPaths)
+	//fmt.Printf("route: %#v\n", r)
+
 	switch len(splitPaths) {
 	case 1:
 		// must be at the end
@@ -76,9 +91,9 @@ func (r *route) addUrl(path string, handlerFunc http.HandlerFunc) {
 		// this is a named parameter
 		if strings.HasPrefix(splitPaths[0], ":") {
 			if r.namedChildren == nil {
-				r.namedChildren = &route{childName: splitPaths[0][1:], handlerFunc: handlerFunc}
+				r.namedChildren = &route{childName: trimPaths(splitPaths[0]), handlerFunc: handlerFunc}
 			} else {
-				r.childName = splitPaths[0][1:]
+				r.namedChildren.childName = trimPaths(splitPaths[0])
 				r.namedChildren.handlerFunc = handlerFunc
 			}
 
@@ -86,14 +101,15 @@ func (r *route) addUrl(path string, handlerFunc http.HandlerFunc) {
 		}
 
 		// this is a url path
-		if childRoutes, ok := r.urlChildren[splitPaths[0]]; ok {
-			childRoutes.handlerFunc = handlerFunc
-		} else {
-			if r.urlChildren == nil {
-				r.urlChildren = routes{}
-			}
+		if r.urlChildren == nil {
+			r.urlChildren = routes{}
+		}
 
-			r.urlChildren[splitPaths[0]] = &route{handlerFunc: handlerFunc}
+		if childRoute, ok := r.urlChildren[splitPaths[0]]; ok {
+			childRoute.childName = trimPaths(splitPaths[0])
+			childRoute.handlerFunc = handlerFunc
+		} else {
+			r.urlChildren[splitPaths[0]] = &route{childName: trimPaths(splitPaths[0]), handlerFunc: handlerFunc}
 		}
 	default: // always will be 2
 		// must be able to recurse
@@ -101,22 +117,23 @@ func (r *route) addUrl(path string, handlerFunc http.HandlerFunc) {
 		// this is a named parameter
 		if strings.HasPrefix(splitPaths[0], ":") {
 			if r.namedChildren == nil {
-				*r.namedChildren = route{}
+				r.namedChildren = &route{}
 			}
 
+			r.namedChildren.childName = trimPaths(splitPaths[0])
 			r.namedChildren.addUrl(splitPaths[1], handlerFunc)
 			return
 		}
 
 		// this is a url path
+		if r.urlChildren == nil {
+			r.urlChildren = routes{}
+		}
+
 		if childRoutes, ok := r.urlChildren[splitPaths[0]]; ok {
 			childRoutes.addUrl(splitPaths[1], handlerFunc)
 		} else {
-			if r.urlChildren == nil {
-				r.urlChildren = routes{}
-			}
-
-			r.urlChildren[splitPaths[0]] = &route{}
+			r.urlChildren[splitPaths[0]] = &route{childName: trimPaths(splitPaths[0])}
 			r.urlChildren[splitPaths[0]].addUrl(splitPaths[1], handlerFunc)
 		}
 	}
@@ -136,13 +153,9 @@ func (route *route) serveHTTP(path string, w http.ResponseWriter, r *http.Reques
 
 		// check to see if it is a named parameter
 		if route.namedChildren != nil {
-			route.namedChildren.handlerFunc(w, setNamedParameter(route.namedChildren.childName, splitPaths[0], r))
+			route.namedChildren.handlerFunc(w, setNamedParameter(route.namedChildren.childName, trimPaths(splitPaths[0]), r))
 			return true
 		}
-
-		// must not be found
-		// http.NotFoundHandler().ServeHTTP(w, r)
-		return false
 	default: // split case 2
 		// this is a proper url found
 		if urlChild, ok := route.urlChildren[splitPaths[0]]; ok {
@@ -153,18 +166,18 @@ func (route *route) serveHTTP(path string, w http.ResponseWriter, r *http.Reques
 
 		// check to see if it is a named parameter
 		if route.namedChildren != nil {
-			if route.namedChildren.serveHTTP(splitPaths[1], w, setNamedParameter(route.childName, splitPaths[0], r)) {
+			if route.namedChildren.serveHTTP(splitPaths[1], w, setNamedParameter(route.namedChildren.childName, trimPaths(splitPaths[0]), r)) {
 				return true
 			}
 		}
-
-		// see if there is a handler at this level to capture all unkown paths
-		if route.handlerFunc != nil {
-			route.handlerFunc(w, r)
-			return true
-		}
-
-		// must not be found
-		return false
 	}
+
+	// see if there is a handler at this level to capture all unkown paths
+	if route.handlerFunc != nil {
+		route.handlerFunc(w, r)
+		return true
+	}
+
+	// must not be found
+	return false
 }

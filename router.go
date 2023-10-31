@@ -38,7 +38,7 @@ func (router *Router) HandleFunc(method string, path string, handlerFunc http.Ha
 	if knownRoute, ok := router.routes[method]; ok {
 		foundRoute = knownRoute
 	} else {
-		foundRoute = &route{}
+		foundRoute = &route{childName: method}
 		router.routes[method] = foundRoute
 	}
 
