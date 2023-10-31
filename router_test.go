@@ -1,6 +1,7 @@
 package urlrouter
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -29,7 +30,7 @@ func TestRouter_SimplePathPatterns(t *testing.T) {
 		testServer := httptest.NewServer(router)
 		defer testServer.Close()
 
-		request, err := http.NewRequest("POST", "/", nil)
+		request, err := http.NewRequest("POST", fmt.Sprintf("%s/", testServer.URL), nil)
 		g.Expect(err).ToNot(HaveOccurred())
 
 		resp, err := client.Do(request)

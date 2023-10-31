@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 )
 
 type routes map[string]*route
@@ -16,7 +17,24 @@ type route struct {
 }
 
 func (r *route) addUrl(path string, handlerFunc http.HandlerFunc) {
-	splitPaths := strings.SplitN(path, "/", 2)
+	splitPaths := []string{}
+
+	for index, char := range path {
+		if len(splitPaths) == 0 {
+			splitPaths = append(splitPaths, string(char))
+		} else {
+			splitPaths[0] += string(char)
+		}
+
+		if char == '/' {
+			endIndex := index + utf8.RuneCountInString(string(char))
+			if endIndex != len(path) {
+				splitPaths = append(splitPaths, path[endIndex:])
+			}
+
+			break
+		}
+	}
 
 	fmt.Printf("path: %#v\n", path)
 	fmt.Printf("split path: %#v\n", splitPaths)
@@ -40,6 +58,7 @@ func (r *route) addUrl(path string, handlerFunc http.HandlerFunc) {
 		if childRoutes, ok := r.urlChildren[splitPaths[0]]; ok {
 			childRoutes.handlerFunc = handlerFunc
 		} else {
+			r.urlChildren = routes{}
 			r.urlChildren[splitPaths[0]] = &route{handlerFunc: handlerFunc}
 		}
 	default: // always will be 2
