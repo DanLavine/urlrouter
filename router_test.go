@@ -146,7 +146,33 @@ func TestRouter_UrlPathPatterns(t *testing.T) {
 	})
 
 	t.Run("Context behaviors of paths", func(t *testing.T) {
-		t.Run("It allows paths ending in a '/' to match a path not captured with explicit paths", func(t *testing.T) {
+		t.Run("It returns a 404 if no paths match appropriately", func(t *testing.T) {
+			path := "/some/path"
+
+			router := New()
+			router.HandleFunc("POST", path, foundHandler(path))
+
+			testServer := httptest.NewServer(router)
+			defer testServer.Close()
+
+			// single path
+			request, err := http.NewRequest("POST", fmt.Sprintf("%s/not_found", testServer.URL), nil)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			resp, err := client.Do(request)
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+
+			// match first part, but not second
+			request, err = http.NewRequest("POST", fmt.Sprintf("%s/some.bad_path", testServer.URL), nil)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			resp, err = client.Do(request)
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+		})
+
+		t.Run("It allows paths ending in a '/' to wildcard match a path not captured with explicit paths", func(t *testing.T) {
 			catchAll := func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(`catch all`))
@@ -161,10 +187,6 @@ func TestRouter_UrlPathPatterns(t *testing.T) {
 			router.HandleFunc("POST", "/", catchAll)
 			router.HandleFunc("POST", "/v1/full_match", fullmMatch)
 
-			//mux := http.NewServeMux()
-			//mux.HandleFunc("/", catchAll)
-			//mux.HandleFunc("/v1/full_match", fullmMatch)
-			//
 			//testServer := httptest.NewServer(mux)
 			testServer := httptest.NewServer(router)
 			defer testServer.Close()
@@ -194,33 +216,7 @@ func TestRouter_UrlPathPatterns(t *testing.T) {
 			g.Expect(string(body)).To(Equal("full match"))
 		})
 
-		t.Run("It returns a 404 if no paths match appropriately", func(t *testing.T) {
-			path := "/some/path"
-
-			router := New()
-			router.HandleFunc("POST", path, foundHandler(path))
-
-			testServer := httptest.NewServer(router)
-			defer testServer.Close()
-
-			// single path
-			request, err := http.NewRequest("POST", fmt.Sprintf("%s/not_found", testServer.URL), nil)
-			g.Expect(err).ToNot(HaveOccurred())
-
-			resp, err := client.Do(request)
-			g.Expect(err).ToNot(HaveOccurred())
-			g.Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
-
-			// match first part, but not second
-			request, err = http.NewRequest("POST", fmt.Sprintf("%s/some.bad_path", testServer.URL), nil)
-			g.Expect(err).ToNot(HaveOccurred())
-
-			resp, err = client.Do(request)
-			g.Expect(err).ToNot(HaveOccurred())
-			g.Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
-		})
-
-		t.Run("It matches the least common denominator path if there is one", func(t *testing.T) {
+		t.Run("It matches the the wildcard that has the most in common paths", func(t *testing.T) {
 			catchAll := func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(`catch all`))
@@ -236,20 +232,15 @@ func TestRouter_UrlPathPatterns(t *testing.T) {
 				w.Write([]byte(`full match`))
 			}
 
-			//router := New()
-			//router.HandleFunc("POST", "/", catchAll)
-			//router.HandleFunc("POST", "/v1", catchV1)
-			//router.HandleFunc("POST", "/v1/full_match", fullmMatch)
+			router := New()
+			router.HandleFunc("POST", "/", catchAll)
+			router.HandleFunc("POST", "/v1/", catchV1)
+			router.HandleFunc("POST", "/v1/full_match", fullmMatch)
 
-			mux := http.NewServeMux()
-			mux.HandleFunc("/", catchAll)
-			mux.HandleFunc("/v1/", catchV1)
-			mux.HandleFunc("/v1/full_match/", fullmMatch)
-
-			testServer := httptest.NewServer(mux)
+			testServer := httptest.NewServer(router)
 			defer testServer.Close()
 
-			// full_match catches anything after the matcher
+			// v1/ catches anything after the matcher rahter than '/'
 			request, err := http.NewRequest("POST", fmt.Sprintf("%s/v1/full_match/something", testServer.URL), nil)
 			g.Expect(err).ToNot(HaveOccurred())
 
@@ -259,9 +250,9 @@ func TestRouter_UrlPathPatterns(t *testing.T) {
 
 			body, err := io.ReadAll(resp.Body)
 			g.Expect(err).ToNot(HaveOccurred())
-			g.Expect(string(body)).To(Equal("full match"))
+			g.Expect(string(body)).To(Equal("catch v1"))
 
-			// full_match catches the exact url as well
+			// full_match catches the exact url properly
 			request, err = http.NewRequest("POST", fmt.Sprintf("%s/v1/full_match", testServer.URL), nil)
 			g.Expect(err).ToNot(HaveOccurred())
 
