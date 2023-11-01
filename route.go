@@ -35,149 +35,160 @@ func setNamedParameter(name, value string, r *http.Request) *http.Request {
 }
 
 func trimPaths(path string) string {
-	if strings.HasPrefix(path, ":") {
-		path = path[1:]
-	}
-
-	if strings.HasSuffix(path, "/") {
-		path = path[:len(path)-1]
-	}
-
-	return path
+	path = strings.TrimPrefix(path, ":")
+	return strings.TrimSuffix(path, "/")
 }
 
 type route struct {
-	childName     string
-	namedChildren *route
+	name string
 
-	urlChildren routes
-	handlerFunc http.HandlerFunc
+	namedChildren *route
+	urlChildren   routes
+
+	handlerFunc  http.HandlerFunc
+	wildcardFunc http.HandlerFunc
 }
 
-func splitPahts(path string) []string {
-	splitPaths := []string{}
+// Splits strings on the "/" index each string will not start with a '/'
+// If a string that is split is "", that indicates it was a "/" character and
+// should be treated as a wildcard
+func splitPaths(path string) ([]string, bool) {
+	var splitPaths []string
+	startIndex := 0
 
-	for index, char := range path {
-		if len(splitPaths) == 0 {
-			splitPaths = append(splitPaths, string(char))
-		} else {
-			splitPaths[0] += string(char)
-		}
-
-		if char == '/' {
-			endIndex := index + utf8.RuneCountInString(string(char))
-			if endIndex != len(path) {
-				splitPaths = append(splitPaths, path[endIndex:])
-			}
-
-			break
-		}
+	if path == "" {
+		return nil, false
 	}
 
-	return splitPaths
+	for index, char := range path {
+		if char == '/' {
+			if index == 0 {
+				// add the new start path of '/'
+				splitPaths = append(splitPaths, string(char))
+			} else {
+				if startIndex == index {
+					// path was a single '/'
+					splitPaths = append(splitPaths, string(char))
+				} else {
+					// add the new paths, 1 for the string before '/' and one for the '/' char
+					splitPaths = append(splitPaths, path[startIndex:index], string(char))
+				}
+			}
+
+			// update the start index
+			startIndex = index + utf8.RuneCountInString(string(char))
+		}
+
+	}
+
+	// always add the final path portion if there is one
+	if startIndex < len(path) {
+		splitPaths = append(splitPaths, path[startIndex:])
+	}
+
+	return splitPaths, splitPaths[len(splitPaths)-1] == "/"
 }
 
 // used to construct the url paths
 func (r *route) addUrl(path string, handlerFunc http.HandlerFunc) {
-	splitPaths := splitPahts(path)
+	splitPaths, wildcard := splitPaths(path)
 
-	//fmt.Printf("add url splitPaths: %#v\n", splitPaths)
-	//fmt.Printf("route: %#v\n", r)
-
-	switch len(splitPaths) {
-	case 1:
-		// must be at the end
-
-		// this is a named parameter
-		if strings.HasPrefix(splitPaths[0], ":") {
-			if r.namedChildren == nil {
-				r.namedChildren = &route{childName: trimPaths(splitPaths[0]), handlerFunc: handlerFunc}
+	currentRoute := r
+	for _, path := range splitPaths {
+		// this is a named parameters
+		if strings.HasPrefix(path, ":") {
+			if currentRoute.namedChildren == nil {
+				currentRoute.namedChildren = &route{name: trimPaths(path), handlerFunc: handlerFunc}
 			} else {
-				r.namedChildren.childName = trimPaths(splitPaths[0])
-				r.namedChildren.handlerFunc = handlerFunc
+				currentRoute.namedChildren.name = trimPaths(path)
 			}
 
-			return
+			// update the new route
+			currentRoute = currentRoute.namedChildren
+			continue
 		}
 
-		// this is a url path
-		if r.urlChildren == nil {
-			r.urlChildren = routes{}
+		// this is url route path
+		if currentRoute.urlChildren == nil {
+			currentRoute.urlChildren = routes{}
 		}
 
-		if childRoute, ok := r.urlChildren[splitPaths[0]]; ok {
-			childRoute.childName = trimPaths(splitPaths[0])
-			childRoute.handlerFunc = handlerFunc
+		if childRoute, ok := currentRoute.urlChildren[path]; ok {
+			currentRoute = childRoute
 		} else {
-			r.urlChildren[splitPaths[0]] = &route{childName: trimPaths(splitPaths[0]), handlerFunc: handlerFunc}
+			currentRoute.urlChildren[path] = &route{name: trimPaths(path)}
+			currentRoute = currentRoute.urlChildren[path]
 		}
-	default: // always will be 2
-		// must be able to recurse
+	}
 
-		// this is a named parameter
-		if strings.HasPrefix(splitPaths[0], ":") {
-			if r.namedChildren == nil {
-				r.namedChildren = &route{}
-			}
-
-			r.namedChildren.childName = trimPaths(splitPaths[0])
-			r.namedChildren.addUrl(splitPaths[1], handlerFunc)
-			return
-		}
-
-		// this is a url path
-		if r.urlChildren == nil {
-			r.urlChildren = routes{}
-		}
-
-		if childRoutes, ok := r.urlChildren[splitPaths[0]]; ok {
-			childRoutes.addUrl(splitPaths[1], handlerFunc)
-		} else {
-			r.urlChildren[splitPaths[0]] = &route{childName: trimPaths(splitPaths[0])}
-			r.urlChildren[splitPaths[0]].addUrl(splitPaths[1], handlerFunc)
-		}
+	// add the handler or wildcard if it is true
+	if wildcard {
+		currentRoute.wildcardFunc = handlerFunc
+	} else {
+		currentRoute.handlerFunc = handlerFunc
 	}
 }
 
-// used when parsing server requests to determine which handler to use
-func (route *route) serveHTTP(path string, w http.ResponseWriter, r *http.Request) bool {
-	splitPaths := splitPahts(path)
+// used to parse server requests, determining which handler to use
+func (r *route) serveHTTP(path string, w http.ResponseWriter, req *http.Request) bool {
+	splitPaths, _ := splitPaths(path)
 
-	switch len(splitPaths) {
-	case 1:
-		// this is a proper url found
-		if urlChild, ok := route.urlChildren[splitPaths[0]]; ok {
-			urlChild.handlerFunc(w, r)
-			return true
-		}
-
-		// check to see if it is a named parameter
-		if route.namedChildren != nil {
-			route.namedChildren.handlerFunc(w, setNamedParameter(route.namedChildren.childName, trimPaths(splitPaths[0]), r))
-			return true
-		}
-	default: // split case 2
-		// this is a proper url found
-		if urlChild, ok := route.urlChildren[splitPaths[0]]; ok {
-			if urlChild.serveHTTP(splitPaths[1], w, r) {
-				return true
-			}
-		}
-
-		// check to see if it is a named parameter
-		if route.namedChildren != nil {
-			if route.namedChildren.serveHTTP(splitPaths[1], w, setNamedParameter(route.namedChildren.childName, trimPaths(splitPaths[0]), r)) {
-				return true
-			}
-		}
-	}
-
-	// see if there is a handler at this level to capture all unkown paths
-	if route.handlerFunc != nil {
-		route.handlerFunc(w, r)
+	if callabck := r.parseWithNamedParameters(splitPaths, req); callabck != nil {
+		callabck(w, req)
 		return true
 	}
 
-	// must not be found
 	return false
+}
+
+func (r *route) parseWithNamedParameters(paths []string, req *http.Request) http.HandlerFunc {
+	// this is a proper url found
+	if len(paths) == 0 {
+		return nil
+	}
+
+	if urlChild, ok := r.urlChildren[paths[0]]; ok {
+		switch len(paths) {
+		case 1:
+			if urlChild.handlerFunc != nil {
+				return urlChild.handlerFunc
+			}
+
+			return urlChild.wildcardFunc
+		default:
+			callback := urlChild.parseWithNamedParameters(paths[1:], req)
+
+			if callback != nil {
+				return callback
+			}
+
+			// try to return the wild card on the chid if there is one
+			return urlChild.wildcardFunc
+		}
+	}
+
+	// this is a named parameter
+	if r.namedChildren != nil {
+		switch len(paths) {
+		case 1:
+			// have an exact match for a named child.
+			if r.namedChildren.handlerFunc != nil {
+				*req = *setNamedParameter(r.namedChildren.name, paths[0], req)
+				return r.namedChildren.handlerFunc
+			}
+
+			// named children will never have wildcards
+		default:
+			callback := r.namedChildren.parseWithNamedParameters(paths[1:], req)
+
+			// update the context to include the named parameter
+			if callback != nil {
+				*req = *setNamedParameter(r.namedChildren.name, paths[0], req)
+				return callback
+			}
+		}
+	}
+
+	// at this point, there is nothing to return, hit a bad index
+	return nil
 }
