@@ -2,8 +2,10 @@ package urlrouter
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 )
 
 type urlNamedParameter string
@@ -50,28 +52,50 @@ type route struct {
 // If a string that is split is "", that indicates it was a "/" character and
 // should be treated as a wildcard
 func splitPahts(path string) []string {
-	 splitPaths := []string{}
+	var splitPaths []string
 
-	 for index, char := range path {
+	endIndex := 0
+	for index, char := range path {
+		if char == '/' {
+			fmt.Println("dsl index:", index)
 
-	 	if len(splitPaths) == 0 {
-	 		splitPaths = append(splitPaths, string(char))
-	 	} else {
-	 		splitPaths[0] += string(char)
-	 	
-	 	if char == '/' {
-	 		endIndex := index + utf8.RuneCountInString(string(char))
-	 		if endIndex != len(path) {
-	 			splitPaths = append(splitPaths, path[endIndex:])
-	 		
-	 		break
-	 	}
-	}
+			// this was the case that the string started with a '/'
+			if index == 0 {
+				endIndex = utf8.RuneCountInString(string(char))
+				splitPaths = append(splitPaths, "")
+				fmt.Println("dsl splitPaths:", splitPaths)
+				break
+			}
+
+			// there was a string before the '/'. I.E: 'abc/'
+			endIndex = index                                 //+ utf8.RuneCountInString(string(char))
+			splitPaths = append(splitPaths, path[:endIndex]) //-utf8.RuneCountInString(string(char))])
+
+			break
 		}
-	 
-	 return splitPaths
-	
-	//return strings.Split(path, "/")
+	}
+
+	switch len(splitPaths) {
+	case 0:
+		// must just be a single value
+
+		// return nil if it is the empty string
+		if path == "" {
+			return nil
+		}
+
+		// return the path that was passed in
+		return []string{path}
+	case 1:
+		// try and append all the ending values to be parsed on the next iteration
+		fmt.Println("end index:", endIndex)
+		fmt.Println("path len:", len(path))
+		if endIndex <= len(path)-1 {
+			splitPaths = append(splitPaths, path[endIndex:])
+		}
+	}
+
+	return splitPaths
 }
 
 // used to construct the url paths

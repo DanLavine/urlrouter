@@ -16,7 +16,6 @@ func TestInternalFunction_splitPaths(t *testing.T) {
 	t.Run("It splits an empty string into nil", func(t *testing.T) {
 		paths := splitPahts("")
 		g.Expect(paths).To(BeNil())
-
 	})
 
 	t.Run("It splits a single '/' into an empty string", func(t *testing.T) {
@@ -25,13 +24,13 @@ func TestInternalFunction_splitPaths(t *testing.T) {
 	})
 
 	t.Run("It splits a two '//' into two", func(t *testing.T) {
-		paths := splitPahts("/")
-		g.Expect(paths).To(Equal([]string{"", ""}))
+		paths := splitPahts("//")
+		g.Expect(paths).To(Equal([]string{"", "/"}))
 	})
 
 	t.Run("It splits anything before a '/' into the first index", func(t *testing.T) {
 		paths := splitPahts("abc/")
-		g.Expect(paths).To(Equal([]string{"abc"}))
+		g.Expect(paths).To(Equal([]string{"abc", "/"}))
 	})
 
 	t.Run("It splits anything after the '/' into the second index", func(t *testing.T) {
@@ -41,7 +40,7 @@ func TestInternalFunction_splitPaths(t *testing.T) {
 
 	t.Run("It splits 'abc/def' into two indexes", func(t *testing.T) {
 		paths := splitPahts("abc/def")
-		g.Expect(paths).To(Equal([]string{"abc", "def"}))
+		g.Expect(paths).To(Equal([]string{"abc", "/def"}))
 	})
 }
 
