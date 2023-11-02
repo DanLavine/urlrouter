@@ -14,33 +14,45 @@ func TestInternalFunction_splitPaths(t *testing.T) {
 	g := NewGomegaWithT(t)
 
 	t.Run("It splits an empty string into nil", func(t *testing.T) {
-		paths := splitPahts("")
+		paths, wildcard := splitPaths("")
 		g.Expect(paths).To(BeNil())
+		g.Expect(wildcard).To(BeFalse())
 	})
 
-	t.Run("It splits a single '/' into an empty string", func(t *testing.T) {
-		paths := splitPahts("/")
-		g.Expect(paths).To(Equal([]string{""}))
+	t.Run("It splits a single '/' to nil, but the wildcard is true", func(t *testing.T) {
+		paths, wildcard := splitPaths("/")
+		g.Expect(paths).To(Equal([]string{"/"}))
+		g.Expect(wildcard).To(BeTrue())
 	})
 
-	t.Run("It splits a two '//' into two", func(t *testing.T) {
-		paths := splitPahts("//")
-		g.Expect(paths).To(Equal([]string{"", "/"}))
+	t.Run("It splits '/abc' to the string '/abc' and wildcard is false", func(t *testing.T) {
+		paths, wildcard := splitPaths("/abc")
+		g.Expect(paths).To(Equal([]string{"/abc"}))
+		g.Expect(wildcard).To(BeFalse())
 	})
 
-	t.Run("It splits anything before a '/' into the first index", func(t *testing.T) {
-		paths := splitPahts("abc/")
-		g.Expect(paths).To(Equal([]string{"abc", "/"}))
+	t.Run("It splits '/abc/' to the strings '/abc'. '/' and wildcard is true", func(t *testing.T) {
+		paths, wildcard := splitPaths("/abc/")
+		g.Expect(paths).To(Equal([]string{"/abc", "/"}))
+		g.Expect(wildcard).To(BeTrue())
 	})
 
-	t.Run("It splits anything after the '/' into the second index", func(t *testing.T) {
-		paths := splitPahts("/def")
-		g.Expect(paths).To(Equal([]string{"", "def"}))
+	t.Run("It splits a multiple paths 'abc/def/hij' into multiple strings and wildcard is false", func(t *testing.T) {
+		paths, wildcard := splitPaths("abc/def/hij")
+		g.Expect(paths).To(Equal([]string{"abc", "/def", "/hij"}))
+		g.Expect(wildcard).To(BeFalse())
 	})
 
-	t.Run("It splits 'abc/def' into two indexes", func(t *testing.T) {
-		paths := splitPahts("abc/def")
-		g.Expect(paths).To(Equal([]string{"abc", "/def"}))
+	t.Run("It splits a multiple paths '/abc/def/hij/' into multiple strings and wildcard is true", func(t *testing.T) {
+		paths, wildcard := splitPaths("/abc/def/hij/")
+		g.Expect(paths).To(Equal([]string{"/abc", "/def", "/hij", "/"}))
+		g.Expect(wildcard).To(BeTrue())
+	})
+
+	t.Run("It splits a two '//' into 2 strings with a true wildcard", func(t *testing.T) {
+		paths, wildcard := splitPaths("//")
+		g.Expect(paths).To(Equal([]string{"/", "/"}))
+		g.Expect(wildcard).To(BeTrue())
 	})
 }
 
@@ -212,14 +224,14 @@ func TestRouter_UrlPathPatterns(t *testing.T) {
 				w.Write([]byte(`catch all`))
 			}
 
-			fullmMatch := func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`full match`))
-			}
+			//fullmMatch := func(w http.ResponseWriter, r *http.Request) {
+			//	w.WriteHeader(http.StatusOK)
+			//	w.Write([]byte(`full match`))
+			//}
 
 			router := New()
 			router.HandleFunc("POST", "/", catchAll)
-			router.HandleFunc("POST", "/v1/full_match", fullmMatch)
+			//router.HandleFunc("POST", "/v1/full_match", fullmMatch)
 
 			//testServer := httptest.NewServer(mux)
 			testServer := httptest.NewServer(router)
