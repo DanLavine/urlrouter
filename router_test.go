@@ -25,27 +25,27 @@ func TestInternalFunction_splitPaths(t *testing.T) {
 		g.Expect(wildcard).To(BeTrue())
 	})
 
-	t.Run("It splits '/abc' to the string '/abc' and wildcard is false", func(t *testing.T) {
+	t.Run("It splits '/abc' to the strings '/', 'abc' and wildcard is false", func(t *testing.T) {
 		paths, wildcard := splitPaths("/abc")
-		g.Expect(paths).To(Equal([]string{"/abc"}))
+		g.Expect(paths).To(Equal([]string{"/", "abc"}))
 		g.Expect(wildcard).To(BeFalse())
 	})
 
-	t.Run("It splits '/abc/' to the strings '/abc'. '/' and wildcard is true", func(t *testing.T) {
+	t.Run("It splits '/abc/' to the strings '/', 'abc', '/' and wildcard is true", func(t *testing.T) {
 		paths, wildcard := splitPaths("/abc/")
-		g.Expect(paths).To(Equal([]string{"/abc", "/"}))
+		g.Expect(paths).To(Equal([]string{"/", "abc", "/"}))
 		g.Expect(wildcard).To(BeTrue())
 	})
 
 	t.Run("It splits a multiple paths 'abc/def/hij' into multiple strings and wildcard is false", func(t *testing.T) {
 		paths, wildcard := splitPaths("abc/def/hij")
-		g.Expect(paths).To(Equal([]string{"abc", "/def", "/hij"}))
+		g.Expect(paths).To(Equal([]string{"abc", "/", "def", "/", "hij"}))
 		g.Expect(wildcard).To(BeFalse())
 	})
 
 	t.Run("It splits a multiple paths '/abc/def/hij/' into multiple strings and wildcard is true", func(t *testing.T) {
 		paths, wildcard := splitPaths("/abc/def/hij/")
-		g.Expect(paths).To(Equal([]string{"/abc", "/def", "/hij", "/"}))
+		g.Expect(paths).To(Equal([]string{"/", "abc", "/", "def", "/", "hij", "/"}))
 		g.Expect(wildcard).To(BeTrue())
 	})
 
@@ -224,14 +224,14 @@ func TestRouter_UrlPathPatterns(t *testing.T) {
 				w.Write([]byte(`catch all`))
 			}
 
-			//fullmMatch := func(w http.ResponseWriter, r *http.Request) {
-			//	w.WriteHeader(http.StatusOK)
-			//	w.Write([]byte(`full match`))
-			//}
+			fullmMatch := func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`full match`))
+			}
 
 			router := New()
 			router.HandleFunc("POST", "/", catchAll)
-			//router.HandleFunc("POST", "/v1/full_match", fullmMatch)
+			router.HandleFunc("POST", "/v1/full_match", fullmMatch)
 
 			//testServer := httptest.NewServer(mux)
 			testServer := httptest.NewServer(router)

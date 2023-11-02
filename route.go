@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 )
 
 type urlNamedParameter string
@@ -60,43 +61,32 @@ func splitPaths(path string) ([]string, bool) {
 	}
 
 	for index, char := range path {
-		// index == 0 {
-		//	if char == '/' {
-		//		// the string was just the '/' character
-		//		if len(path) == utf8.RuneCountInString(string(char)) {
-		//			splitPaths = append(splitPaths, string(path))
-		//		}
-		//
-		//		continue
-		//	}
-		//
-		//
 		if char == '/' {
-			// don't need to add the first '/' here as strings should always start with a '/' char
 			if index == 0 {
-				continue
+				// add the new start path of '/'
+				splitPaths = append(splitPaths, string(char))
+			} else {
+				if startIndex == index {
+					// path was a single '/'
+					splitPaths = append(splitPaths, string(char))
+				} else {
+					// add the new paths, 1 for the string before '/' and one for the '/' char
+					splitPaths = append(splitPaths, path[startIndex:index], string(char))
+				}
 			}
 
-			// add the new path
-			splitPaths = append(splitPaths, path[startIndex:index])
-
 			// update the start index
-			startIndex = index
+			startIndex = index + utf8.RuneCountInString(string(char))
 		}
 
 	}
 
-	// always add the final path portion
-	splitPaths = append(splitPaths, path[startIndex:])
+	// always add the final path portion if there is one
+	if startIndex < len(path) {
+		splitPaths = append(splitPaths, path[startIndex:])
+	}
 
 	return splitPaths, splitPaths[len(splitPaths)-1] == "/"
-
-	// return splitPaths
-	//if path == "" {
-	//	return nil, false
-	//}
-	//
-	//return strings.Split(path, "/"), strings.HasSuffix(path, "/")
 }
 
 // used to construct the url paths
@@ -109,7 +99,7 @@ func (r *route) addUrl(path string, handlerFunc http.HandlerFunc) {
 		// this is a named parameters
 		if strings.HasPrefix(path, ":") {
 			if currentRoute.namedChildren == nil {
-				currentRoute.namedChildren = &route{name: trimPaths(path), handlerFunc: handlerFunc}
+				currentRoute.namedChildren = &route{name: trimPaths(path)}
 			} else {
 				currentRoute.namedChildren.name = trimPaths(path)
 			}
