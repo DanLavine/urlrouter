@@ -95,11 +95,10 @@ func (r *route) addUrl(path string, handlerFunc http.HandlerFunc) {
 
 	currentRoute := r
 	for _, path := range splitPaths {
-		//fmt.Println("adding path:", path)
 		// this is a named parameters
 		if strings.HasPrefix(path, ":") {
 			if currentRoute.namedChildren == nil {
-				currentRoute.namedChildren = &route{name: trimPaths(path)}
+				currentRoute.namedChildren = &route{name: trimPaths(path), handlerFunc: handlerFunc}
 			} else {
 				currentRoute.namedChildren.name = trimPaths(path)
 			}
@@ -134,60 +133,62 @@ func (r *route) addUrl(path string, handlerFunc http.HandlerFunc) {
 func (r *route) serveHTTP(path string, w http.ResponseWriter, req *http.Request) bool {
 	splitPaths, _ := splitPaths(path)
 
-	var wildcardHandler http.HandlerFunc
-	currentRoute := r
-
-	index := 0
-	for index, path = range splitPaths {
-		//fmt.Println("checking path:", path)
-		//fmt.Printf("Current Route: %#v\n", currentRoute)
-
-		// this is a proper url found
-		if urlChild, ok := currentRoute.urlChildren[path]; ok {
-			currentRoute = urlChild
-			if currentRoute.wildcardFunc != nil {
-				wildcardHandler = currentRoute.wildcardFunc
-			}
-
-			continue
-		}
-
-		// this is a named parameter
-		if currentRoute.namedChildren != nil {
-			currentRoute = currentRoute.namedChildren
-			if currentRoute.wildcardFunc != nil {
-				wildcardHandler = currentRoute.wildcardFunc
-			}
-
-			// update the context to include the named parameter
-			req = setNamedParameter(currentRoute.name, path, req)
-
-			continue
-		}
-
-		// hit a dead end in the path traversal
-		break
-	}
-
-	//fmt.Println("index:", index)
-	//fmt.Println("splitPathLen:", len(splitPaths))
-
-	// trversed the entire list call the exact match handler if there is one, or use the wildcard handler
-	if index+1 == len(splitPaths) {
-		if currentRoute.handlerFunc != nil {
-			currentRoute.handlerFunc(w, req)
-			return true
-		} else if wildcardHandler != nil {
-			wildcardHandler(w, req)
-			return true
-		}
-	}
-
-	// broke early at some point, can onlly use the wildcards
-	if wildcardHandler != nil {
-		wildcardHandler(w, req)
+	if callabck := r.parseWithNamedParameters(splitPaths, req); callabck != nil {
+		callabck(w, req)
 		return true
 	}
 
 	return false
+}
+
+func (r *route) parseWithNamedParameters(paths []string, req *http.Request) http.HandlerFunc {
+	// this is a proper url found
+	if len(paths) == 0 {
+		return nil
+	}
+
+	if urlChild, ok := r.urlChildren[paths[0]]; ok {
+		switch len(paths) {
+		case 1:
+			if urlChild.handlerFunc != nil {
+				return urlChild.handlerFunc
+			}
+
+			return urlChild.wildcardFunc
+		default:
+			callback := urlChild.parseWithNamedParameters(paths[1:], req)
+
+			if callback != nil {
+				return callback
+			}
+
+			// try to return the wild card on the chid if there is one
+			return urlChild.wildcardFunc
+		}
+	}
+
+	// this is a named parameter
+	if r.namedChildren != nil {
+		switch len(paths) {
+		case 1:
+			// have an exact match for a named child.
+			if r.namedChildren.handlerFunc != nil {
+				*req = *setNamedParameter(r.namedChildren.name, paths[0], req)
+				return r.namedChildren.handlerFunc
+			}
+
+			// named children will never have wildcards
+		default:
+			callback := r.namedChildren.parseWithNamedParameters(paths[1:], req)
+
+			// update the context to include the named parameter
+			if callback != nil {
+				*req = *setNamedParameter(r.namedChildren.name, paths[0], req)
+				return callback
+			}
+		}
+	}
+
+	// at this point, there is nothing to return, hit a bad index
+	return nil
 }
